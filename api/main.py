@@ -17,10 +17,9 @@ from slowapi.util import get_remote_address
 from api.models.comment import Comment, CommentList
 from api.nlp import (
     danger_analyzer,
-    danger_analyzer_v2,
-    danger_analyzer_v3,
     hate_analyzer,
     sentiment_analyzer,
+    categories_analyzer,
 )
 from api.settings import settings
 
@@ -63,35 +62,12 @@ def build_metrics(metrics_start: dict) -> dict:
     }
 
 
-def get_danger_analyzer(model: str):
-    """
-    Returns the appropriate danger analyzer based on the model name.
-    """
-
-    if model == "evd2":
-        return danger_analyzer_v2
-    elif model == "evd3":
-        return danger_analyzer_v3
-
-    return danger_analyzer
-
-
-def map_danger_label(label: str, model: str) -> str:
+def map_danger_label(label: str) -> str:
     """
     Maps the danger label to a descriptive value based on the model used.
     """
 
-    if model == "evd":
-        mapping = {"LABEL_0": "normal", "LABEL_1": "critico", "LABEL_2": "muy_critico"}
-    elif model == "evd2":  # evd2
-        mapping = {
-            "LABEL_0": "bueno",
-            "LABEL_1": "bajo",
-            "LABEL_2": "critico",
-            "LABEL_3": "muy_critico",
-        }
-    else:  # evd3
-        mapping = {"LABEL_0": "bajo", "LABEL_1": "medio", "LABEL_2": "alto"}
+    mapping = {"LABEL_0": "BAJO", "LABEL_1": "MEDIO", "LABEL_2": "ALTO"}
 
     return mapping.get(label)
 
@@ -110,11 +86,6 @@ async def root(request: Request):
 async def analyze_comment(
     request: Request,
     comment: Comment,
-    model: str = Query(
-        default="evd",
-        regex="^(evd|evd2|evd3)$",
-        description="Danger analysis model to use (evd, evd2 or evd3)",
-    ),
 ):
     """
     Endpoint to analyse and store a comment.
@@ -125,132 +96,19 @@ async def analyze_comment(
     sentiment = sentiment_analyzer.predict(comment.content)
     hate = hate_analyzer.predict(comment.content)
 
-    analyzer = get_danger_analyzer(model)
-    danger_label = analyzer.predict(comment.content)[0]
-    danger = map_danger_label(danger_label["label"], model)
+    danger_label = danger_analyzer.predict(comment.content)[0]
+    danger = map_danger_label(danger_label["label"])
+
+    categories = categories_analyzer.predict(comment.content)
 
     return {
         "comment": comment.content,
         "sentiment": sentiment,
         "hate": hate,
         "danger": {"label": danger_label, "description": danger},
-        "model_used": model,
+        "categories": categories,
         "metrics": build_metrics(metrics_start),
         "status": "Comment created successfully",
-    }
-
-
-@app.post("/comments/compare-danger/")
-@limiter.limit("30/minute")
-async def compare_danger_models(request: Request, comment: Comment):
-    """
-    Endpoint to compare danger analysis across all available models.
-    """
-
-    metrics_start = start_metrics()
-    models = ["evd", "evd2", "evd3"]
-    comparisons = {}
-
-    for model_name in models:
-        analyzer = get_danger_analyzer(model_name)
-        danger_label = analyzer.predict(comment.content)[0]
-        danger = map_danger_label(danger_label["label"], model_name)
-
-        comparisons[model_name] = {
-            "label": danger_label,
-            "description": danger,
-        }
-
-    return {
-        "comment": comment.content,
-        "danger_comparison": comparisons,
-        "metrics": build_metrics(metrics_start),
-        "status": "Danger comparison generated successfully",
-    }
-
-
-@app.post("/upload/")
-@limiter.limit("10/minute")
-async def analyze_csv(
-    request: Request,
-    file: UploadFile = File(...),
-    model: str = Query(
-        default="evd",
-        regex="^(evd|evd2|evd3)$",
-        description="Danger analysis model to use (evd, evd2 or evd3)",
-    ),
-):
-    """
-    Endpoint to analyze comments from a CSV file.
-    """
-
-    metrics_start = start_metrics()
-
-    if not file.filename.endswith(".csv"):
-        raise HTTPException(
-            status_code=400, detail="Invalid file type. Please upload a CSV file."
-        )
-
-    content = await file.read()
-
-    try:
-        text_content = content.decode("utf-8")
-        csv_file = StringIO(text_content)
-        reader = csv.DictReader(csv_file)
-
-        fieldnames = reader.fieldnames
-
-        if not fieldnames:
-            raise HTTPException(status_code=400, detail="Empty CSV file")
-
-        comment_field = next(
-            (
-                name
-                for name in fieldnames
-                if name.lower() in ["comment", "content", "text", "body"]
-            ),
-            None,
-        )
-
-        if not comment_field:
-            comment_field = fieldnames[0]
-
-        results = []
-
-        analyzer = get_danger_analyzer(model)
-
-        for row in reader:
-            comment_text = row.get(comment_field, "").strip()
-
-            if comment_text:
-                sentiment = sentiment_analyzer.predict(comment_text)
-                hate = hate_analyzer.predict(comment_text)
-                danger_label = analyzer.predict(comment_text)[0]
-                danger = map_danger_label(danger_label["label"], model)
-
-                results.append(
-                    {
-                        "comment": comment_text,
-                        "sentiment": sentiment,
-                        "hate": hate,
-                        "danger": {"label": danger_label, "description": danger},
-                        "model_used": model,
-                    }
-                )
-
-    except UnicodeDecodeError:
-        raise HTTPException(
-            status_code=400, detail="Invalid file encoding. Please use UTF-8."
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error parsing CSV: {str(e)}")
-
-    return {
-        "filename": file.filename,
-        "results": results,
-        "model_used": model,
-        "metrics": build_metrics(metrics_start),
-        "status": "CSV analyzed successfully",
     }
 
 
