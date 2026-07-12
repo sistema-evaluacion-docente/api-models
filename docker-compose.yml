@@ -8,6 +8,7 @@ services:
       - "8000:8000"
     environment:
       - SUMMARIZE_PROMPT=${SUMMARIZE_PROMPT}
+      - HF_TOKEN=${HF_TOKEN}
     env_file:
       - .env
     volumes:
