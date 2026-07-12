@@ -1,6 +1,23 @@
-.env
-venv/
-api/modelo_fine_tuned
-
-# ignore all pycache files
+# Ignore Python cache files
 __pycache__/
+*.py[cod]
+
+# Ignore uploaded files
+uploads/
+
+# Ignore virtual environment directories
+venv/
+
+# Environment variable files
+.env
+.env.local
+.env.*.local
+
+# Ignore IDE specific files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+.firebase/
+firebase.json
