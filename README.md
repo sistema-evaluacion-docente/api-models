@@ -1,4 +1,4 @@
-# API Demo — Análisis de Comentarios Docentes
+# API Análisis de Comentarios Docentes
 
 API de procesamiento de lenguaje natural para el análisis automatizado de comentarios de evaluación docente en español. Proyecto de tesis.
 
